@@ -5,19 +5,13 @@ import Permission from "../models/Permission.js";
 // Create Role
 export const createRole = async (req, res) => {
   try {
-    const { organizationId, name, description } = req.body;
+    const organizationId = req.user.organizationId;
+    const { name, description } = req.body;
 
-    if (!organizationId || !name) {
+    if (!name) {
       return res.status(400).json({
         success: false,
-        message: "organizationId and name are required",
-      });
-    }
-
-    if (!mongoose.Types.ObjectId.isValid(organizationId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid organizationId",
+        message: "Role name is required",
       });
     }
 
@@ -58,7 +52,7 @@ export const createRole = async (req, res) => {
 // Get All Roles
 export const getRoles = async (req, res) => {
   try {
-    const roles = await Role.find();
+    const roles = await Role.find({ organizationId: req.user.organizationId });
 
     res.status(200).json({
       success: true,
@@ -88,7 +82,7 @@ export const getRoleById = async (req, res) => {
       });
     }
 
-    const role = await Role.findById(id);
+    const role = await Role.findOne({ _id: id, organizationId: req.user.organizationId });
 
     if (!role) {
       return res.status(404).json({
@@ -125,10 +119,18 @@ export const updateRole = async (req, res) => {
       });
     }
 
-    const { name } = req.body;
+    if (req.body.organizationId) {
+      return res.status(400).json({
+        success: false,
+        message: "organizationId cannot be changed",
+      });
+    }
+
+    const { name, description } = req.body;
 
     if (name) {
       const existingRole = await Role.findOne({
+        organizationId: req.user.organizationId,
         name: name.trim(),
         _id: { $ne: id },
       });
@@ -139,13 +141,11 @@ export const updateRole = async (req, res) => {
           message: "Role name already exists",
         });
       }
-
-      req.body.name = name.trim();
     }
 
-    const role = await Role.findByIdAndUpdate(
-      id,
-      req.body,
+    const role = await Role.findOneAndUpdate(
+      { _id: id, organizationId: req.user.organizationId },
+      { ...(name && { name: name.trim() }), ...(description !== undefined && { description }) },
       {
         new: true,
         runValidators: true,
@@ -217,7 +217,7 @@ export const updateRolePermissions = async (req, res) => {
     }
 
     // Find role
-    const role = await Role.findById(id);
+    const role = await Role.findOne({ _id: id, organizationId: req.user.organizationId });
 
     if (!role) {
       return res.status(404).json({
@@ -295,7 +295,7 @@ export const deleteRole = async (req, res) => {
       });
     }
 
-    const role = await Role.findByIdAndDelete(id);
+    const role = await Role.findOneAndDelete({ _id: id, organizationId: req.user.organizationId });
 
     if (!role) {
       return res.status(404).json({

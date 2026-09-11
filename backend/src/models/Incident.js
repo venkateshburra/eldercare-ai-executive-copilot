@@ -64,6 +64,11 @@ const incidentSchema = new mongoose.Schema(
   }
 );
 
+incidentSchema.index({ organizationId: 1, status: 1 });
+incidentSchema.index({ organizationId: 1, severity: 1 });
+incidentSchema.index({ organizationId: 1, createdAt: -1 });
+incidentSchema.index({ organizationId: 1, residentId: 1 });
+
 const Incident = mongoose.model("Incident", incidentSchema);
 
 export default Incident;

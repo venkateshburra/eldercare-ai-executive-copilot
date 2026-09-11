@@ -1,4 +1,18 @@
+// src/models/Decision.js
 import mongoose from "mongoose";
+
+const decisionActionSchema = new mongoose.Schema(
+  {
+    actorId:       { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    action:        { type: String, required: true, enum: ["create", "update", "approve", "reject", "override", "defer", "close"] },
+    timestamp:     { type: Date, default: Date.now },
+    reason:        { type: String, trim: true, default: "" },
+    previousValue: { type: mongoose.Schema.Types.Mixed, default: null },
+    newValue:      { type: mongoose.Schema.Types.Mixed, default: null },
+    outcome:       { type: String, trim: true, default: "" },
+  },
+  { _id: false }
+);
 
 const decisionSchema = new mongoose.Schema(
   {
@@ -6,6 +20,7 @@ const decisionSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Organization",
       required: true,
+      index: true,
     },
 
     title: {
@@ -41,8 +56,9 @@ const decisionSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ["pending", "approved", "rejected", "implemented"],
+      enum: ["pending", "approved", "rejected", "implemented", "deferred", "overridden"],
       default: "pending",
+      index: true,
     },
 
     decisionDate: {
@@ -54,6 +70,31 @@ const decisionSchema = new mongoose.Schema(
       trim: true,
     },
 
+    assignedTo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+
+    outcome: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    previousValue: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+
+    newValue: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+
+    // Full action history
+    actions: [decisionActionSchema],
+
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -62,8 +103,11 @@ const decisionSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-  },
+  }
 );
+
+decisionSchema.index({ organizationId: 1, status: 1, createdAt: -1 });
+decisionSchema.index({ organizationId: 1, assignedTo: 1 });
 
 const Decision = mongoose.model("Decision", decisionSchema);
 

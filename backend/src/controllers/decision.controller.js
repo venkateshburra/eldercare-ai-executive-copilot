@@ -1,28 +1,21 @@
+// src/controllers/decision.controller.js
 import mongoose from "mongoose";
 import Decision from "../models/Decision.js";
+import { createAuditLog } from "../services/audit.service.js";
+import { notFound, badRequest } from "../utils/error.js";
 
-// Create Decision
-export const createDecision = async (req, res) => {
+const paginate = (query, page = 1, limit = 20) =>
+  query.skip((page - 1) * limit).limit(limit);
+
+// ── Create ────────────────────────────────────────────────────────────────────
+export const createDecision = async (req, res, next) => {
   try {
-    const {
-      title,
-      description,
-      decisionType,
-      priority,
-      status,
-      decisionDate,
-      rationale,
-    } = req.body;
+    const { title, description, decisionType, priority, status, decisionDate, rationale, assignedTo } = req.body;
 
-    // Required fields
     if (!title || !description || !decisionType) {
-      return res.status(400).json({
-        success: false,
-        message: "title, description and decisionType are required",
-      });
+      throw badRequest("title, description and decisionType are required");
     }
 
-    // Create decision
     const decision = await Decision.create({
       organizationId: req.user.organizationId,
       title,
@@ -32,191 +25,211 @@ export const createDecision = async (req, res) => {
       status: status || "pending",
       decisionDate,
       rationale,
+      assignedTo: assignedTo || null,
       createdBy: req.user._id,
+      actions: [{
+        actorId: req.user._id,
+        action: "create",
+        timestamp: new Date(),
+        reason: "Initial creation",
+      }],
     });
 
-    const decisionResponse = await Decision.findById(decision._id).populate(
-      "createdBy",
-      "firstName lastName email",
-    );
-
-    res.status(201).json({
-      success: true,
-      message: "Decision created successfully",
-      data: decisionResponse,
+    await createAuditLog({
+      organizationId: req.user.organizationId,
+      actorId: req.user._id,
+      action: "create",
+      resourceType: "decision",
+      resourceId: decision._id,
+      metadata: { title, decisionType, priority },
+      req,
     });
-  } catch (error) {
-    console.error("Create decision error:", error);
 
-    res.status(500).json({
-      success: false,
-      message: "Internal server error",
-    });
-  }
+    const populated = await Decision.findById(decision._id)
+      .populate("createdBy", "firstName lastName email")
+      .populate("assignedTo", "firstName lastName email");
+
+    res.status(201).json({ success: true, message: "Decision created successfully", data: populated });
+  } catch (err) { next(err); }
 };
 
-// Get All Decisions
-export const getDecisions = async (req, res) => {
+// ── List ──────────────────────────────────────────────────────────────────────
+export const getDecisions = async (req, res, next) => {
   try {
-    const decisions = await Decision.find({
-      organizationId: req.user.organizationId,
-    })
-      .populate("createdBy", "firstName lastName email")
-      .sort({ createdAt: -1 });
+    const { page = 1, limit = 20, status, decisionType, priority } = req.query;
+    const filter = { organizationId: req.user.organizationId };
+    if (status) filter.status = status;
+    if (decisionType) filter.decisionType = decisionType;
+    if (priority) filter.priority = priority;
+
+    const total = await Decision.countDocuments(filter);
+    const decisions = await paginate(
+      Decision.find(filter)
+        .populate("createdBy", "firstName lastName email")
+        .populate("assignedTo", "firstName lastName email")
+        .sort({ createdAt: -1 }),
+      Number(page),
+      Number(limit)
+    );
 
     res.status(200).json({
       success: true,
       message: "Decisions fetched successfully",
       data: decisions,
+      pagination: { page: Number(page), limit: Number(limit), total, totalPages: Math.ceil(total / limit) },
     });
-  } catch (error) {
-    console.error("Get decisions error:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Internal server error",
-    });
-  }
+  } catch (err) { next(err); }
 };
 
-// Get Decision By ID
-export const getDecisionById = async (req, res) => {
+// ── Get by ID ─────────────────────────────────────────────────────────────────
+export const getDecisionById = async (req, res, next) => {
   try {
     const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) throw badRequest("Invalid decision ID");
 
-    // Validate ID
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid decision ID",
-      });
-    }
+    const decision = await Decision.findOne({ _id: id, organizationId: req.user.organizationId })
+      .populate("createdBy", "firstName lastName email")
+      .populate("assignedTo", "firstName lastName email")
+      .populate("actions.actorId", "firstName lastName email");
 
-    const decision = await Decision.findOne({
-      _id: id,
-      organizationId: req.user.organizationId,
-    }).populate("createdBy", "firstName lastName email");
+    if (!decision) throw notFound("Decision");
 
-    if (!decision) {
-      return res.status(404).json({
-        success: false,
-        message: "Decision not found",
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      message: "Decision fetched successfully",
-      data: decision,
-    });
-  } catch (error) {
-    console.error("Get decision error:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Internal server error",
-    });
-  }
+    res.status(200).json({ success: true, message: "Decision fetched successfully", data: decision });
+  } catch (err) { next(err); }
 };
 
-// Update Decision
-export const updateDecision = async (req, res) => {
+// ── Update ────────────────────────────────────────────────────────────────────
+export const updateDecision = async (req, res, next) => {
   try {
     const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) throw badRequest("Invalid decision ID");
 
-    // Validate ID
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid decision ID",
-      });
-    }
+    // Block protected fields
+    ["organizationId", "createdBy", "actions"].forEach(f => { if (req.body[f]) throw badRequest(`${f} cannot be changed directly`); });
 
-    // Don't allow organization change
-    if (req.body.organizationId) {
-      return res.status(400).json({
-        success: false,
-        message: "organizationId cannot be changed",
-      });
-    }
+    const existing = await Decision.findOne({ _id: id, organizationId: req.user.organizationId });
+    if (!existing) throw notFound("Decision");
 
-    // Don't allow createdBy change
-    if (req.body.createdBy) {
-      return res.status(400).json({
-        success: false,
-        message: "createdBy cannot be changed",
-      });
-    }
+    const allowedFields = ["title", "description", "decisionType", "priority", "status", "decisionDate", "rationale", "assignedTo", "outcome", "previousValue", "newValue"];
+    const updates = {};
+    allowedFields.forEach(f => { if (req.body[f] !== undefined) updates[f] = req.body[f]; });
+
+    const actionEntry = {
+      actorId: req.user._id,
+      action: "update",
+      timestamp: new Date(),
+      reason: req.body.reason || "",
+      previousValue: existing.status,
+      newValue: updates.status || existing.status,
+    };
 
     const decision = await Decision.findOneAndUpdate(
-      {
-        _id: id,
-        organizationId: req.user.organizationId,
-      },
-      req.body,
-      {
-        new: true,
-        runValidators: true,
-      },
-    ).populate("createdBy", "firstName lastName email");
+      { _id: id, organizationId: req.user.organizationId },
+      { ...updates, $push: { actions: actionEntry } },
+      { new: true, runValidators: true }
+    ).populate("createdBy", "firstName lastName email").populate("assignedTo", "firstName lastName email");
 
-    if (!decision) {
-      return res.status(404).json({
-        success: false,
-        message: "Decision not found",
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      message: "Decision updated successfully",
-      data: decision,
+    await createAuditLog({
+      organizationId: req.user.organizationId,
+      actorId: req.user._id,
+      action: "update",
+      resourceType: "decision",
+      resourceId: id,
+      metadata: updates,
+      req,
     });
-  } catch (error) {
-    console.error("Update decision error:", error);
 
-    res.status(500).json({
-      success: false,
-      message: "Internal server error",
-    });
-  }
+    res.status(200).json({ success: true, message: "Decision updated successfully", data: decision });
+  } catch (err) { next(err); }
 };
 
-// Delete Decision
-export const deleteDecision = async (req, res) => {
+// ── Approve ───────────────────────────────────────────────────────────────────
+export const approveDecision = async (req, res, next) => {
   try {
     const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) throw badRequest("Invalid decision ID");
 
-    // Validate ID
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid decision ID",
-      });
-    }
+    const decision = await Decision.findOneAndUpdate(
+      { _id: id, organizationId: req.user.organizationId },
+      {
+        status: "approved",
+        $push: {
+          actions: { actorId: req.user._id, action: "approve", timestamp: new Date(), reason: req.body.reason || "", previousValue: "pending", newValue: "approved" },
+        },
+      },
+      { new: true, runValidators: true }
+    ).populate("createdBy", "firstName lastName email");
 
-    const decision = await Decision.findOneAndDelete({
-      _id: id,
-      organizationId: req.user.organizationId,
-    });
+    if (!decision) throw notFound("Decision");
 
-    if (!decision) {
-      return res.status(404).json({
-        success: false,
-        message: "Decision not found",
-      });
-    }
+    await createAuditLog({ organizationId: req.user.organizationId, actorId: req.user._id, action: "update", resourceType: "decision", resourceId: id, metadata: { action: "approve" }, req });
 
-    res.status(200).json({
-      success: true,
-      message: "Decision deleted successfully",
-    });
-  } catch (error) {
-    console.error("Delete decision error:", error);
+    res.status(200).json({ success: true, message: "Decision approved", data: decision });
+  } catch (err) { next(err); }
+};
 
-    res.status(500).json({
-      success: false,
-      message: "Internal server error",
-    });
-  }
+// ── Reject ────────────────────────────────────────────────────────────────────
+export const rejectDecision = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) throw badRequest("Invalid decision ID");
+    if (!req.body.reason) throw badRequest("A reason is required when rejecting a decision");
+
+    const decision = await Decision.findOneAndUpdate(
+      { _id: id, organizationId: req.user.organizationId },
+      {
+        status: "rejected",
+        $push: { actions: { actorId: req.user._id, action: "reject", timestamp: new Date(), reason: req.body.reason, previousValue: "pending", newValue: "rejected" } },
+      },
+      { new: true, runValidators: true }
+    ).populate("createdBy", "firstName lastName email");
+
+    if (!decision) throw notFound("Decision");
+
+    await createAuditLog({ organizationId: req.user.organizationId, actorId: req.user._id, action: "update", resourceType: "decision", resourceId: id, metadata: { action: "reject", reason: req.body.reason }, req });
+
+    res.status(200).json({ success: true, message: "Decision rejected", data: decision });
+  } catch (err) { next(err); }
+};
+
+// ── Override ──────────────────────────────────────────────────────────────────
+export const overrideDecision = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) throw badRequest("Invalid decision ID");
+    if (!req.body.reason) throw badRequest("A reason is required when overriding a decision");
+
+    const existing = await Decision.findOne({ _id: id, organizationId: req.user.organizationId });
+    if (!existing) throw notFound("Decision");
+
+    const decision = await Decision.findOneAndUpdate(
+      { _id: id, organizationId: req.user.organizationId },
+      {
+        status: "overridden",
+        ...(req.body.newValue !== undefined ? { newValue: req.body.newValue } : {}),
+        previousValue: existing.status,
+        $push: { actions: { actorId: req.user._id, action: "override", timestamp: new Date(), reason: req.body.reason, previousValue: existing.status, newValue: req.body.newValue } },
+      },
+      { new: true, runValidators: true }
+    ).populate("createdBy", "firstName lastName email");
+
+    await createAuditLog({ organizationId: req.user.organizationId, actorId: req.user._id, action: "ai_override", resourceType: "decision", resourceId: id, metadata: { reason: req.body.reason }, req });
+
+    res.status(200).json({ success: true, message: "Decision overridden", data: decision });
+  } catch (err) { next(err); }
+};
+
+// ── Delete ────────────────────────────────────────────────────────────────────
+export const deleteDecision = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) throw badRequest("Invalid decision ID");
+
+    const decision = await Decision.findOneAndDelete({ _id: id, organizationId: req.user.organizationId });
+    if (!decision) throw notFound("Decision");
+
+    await createAuditLog({ organizationId: req.user.organizationId, actorId: req.user._id, action: "delete", resourceType: "decision", resourceId: id, req });
+
+    res.status(200).json({ success: true, message: "Decision deleted successfully" });
+  } catch (err) { next(err); }
 };

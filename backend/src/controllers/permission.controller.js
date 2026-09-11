@@ -4,12 +4,13 @@ import Permission from "../models/Permission.js";
 // Create Permission
 export const createPermission = async (req, res) => {
   try {
-    const { organizationId, name, description } = req.body;
+    const { name, description } = req.body;
+    const organizationId = req.user.organizationId;
 
-    if (!organizationId || !name) {
+    if (!name) {
       return res.status(400).json({
         success: false,
-        message: "organizationId and name are required",
+        message: "name is required",
       });
     }
 
@@ -38,7 +39,7 @@ export const createPermission = async (req, res) => {
       description,
     });
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: "Permission created successfully",
       data: permission,
@@ -46,20 +47,23 @@ export const createPermission = async (req, res) => {
   } catch (error) {
     console.error("Create permission error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Internal server error",
     });
   }
 };
 
-
 // Get All Permissions
 export const getPermissions = async (req, res) => {
   try {
-    const permissions = await Permission.find();
+    const organizationId = req.user.organizationId;
 
-    res.status(200).json({
+    const permissions = await Permission.find({
+      organizationId,
+    });
+
+    return res.status(200).json({
       success: true,
       message: "Permissions fetched successfully",
       data: permissions,
@@ -67,18 +71,18 @@ export const getPermissions = async (req, res) => {
   } catch (error) {
     console.error("Get permissions error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Internal server error",
     });
   }
 };
 
-
 // Get Permission By ID
 export const getPermissionById = async (req, res) => {
   try {
     const { id } = req.params;
+    const organizationId = req.user.organizationId;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -87,7 +91,10 @@ export const getPermissionById = async (req, res) => {
       });
     }
 
-    const permission = await Permission.findById(id);
+    const permission = await Permission.findOne({
+      _id: id,
+      organizationId,
+    });
 
     if (!permission) {
       return res.status(404).json({
@@ -96,7 +103,7 @@ export const getPermissionById = async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Permission fetched successfully",
       data: permission,
@@ -104,18 +111,18 @@ export const getPermissionById = async (req, res) => {
   } catch (error) {
     console.error("Get permission error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Internal server error",
     });
   }
 };
 
-
 // Update Permission
 export const updatePermission = async (req, res) => {
   try {
     const { id } = req.params;
+    const organizationId = req.user.organizationId;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -126,6 +133,7 @@ export const updatePermission = async (req, res) => {
 
     if (req.body.name) {
       const existingPermission = await Permission.findOne({
+        organizationId,
         name: req.body.name.trim(),
         _id: { $ne: id },
       });
@@ -140,13 +148,16 @@ export const updatePermission = async (req, res) => {
       req.body.name = req.body.name.trim();
     }
 
-    const permission = await Permission.findByIdAndUpdate(
-      id,
+    const permission = await Permission.findOneAndUpdate(
+      {
+        _id: id,
+        organizationId,
+      },
       req.body,
       {
         new: true,
         runValidators: true,
-      }
+      },
     );
 
     if (!permission) {
@@ -156,7 +167,7 @@ export const updatePermission = async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Permission updated successfully",
       data: permission,
@@ -164,18 +175,18 @@ export const updatePermission = async (req, res) => {
   } catch (error) {
     console.error("Update permission error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Internal server error",
     });
   }
 };
 
-
 // Delete Permission
 export const deletePermission = async (req, res) => {
   try {
     const { id } = req.params;
+    const organizationId = req.user.organizationId;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -184,7 +195,10 @@ export const deletePermission = async (req, res) => {
       });
     }
 
-    const permission = await Permission.findByIdAndDelete(id);
+    const permission = await Permission.findOneAndDelete({
+      _id: id,
+      organizationId,
+    });
 
     if (!permission) {
       return res.status(404).json({
@@ -193,14 +207,14 @@ export const deletePermission = async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Permission deleted successfully",
     });
   } catch (error) {
     console.error("Delete permission error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Internal server error",
     });

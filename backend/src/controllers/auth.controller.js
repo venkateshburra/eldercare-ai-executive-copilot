@@ -1,3 +1,4 @@
+// src/controllers/auth.controller.js
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
@@ -5,116 +6,39 @@ import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 import Organization from "../models/Organization.js";
 import Role from "../models/Role.js";
+import { createAuditLog } from "../services/audit.service.js";
+import logger from "../utils/logger.js";
+import { AppError, badRequest, conflict, forbidden, notFound, unauthorized } from "../utils/error.js";
 
-// SIGNUP
-export const signup = async (req, res) => {
+// ── SIGNUP ────────────────────────────────────────────────────────────────────
+export const signup = async (req, res, next) => {
   try {
-    const { organizationId, firstName, lastName, email, password, roleId } =
-      req.body;
+    const { organizationId, firstName, lastName, email, password, roleId } = req.body;
 
-    // 1. Required fields
-    if (
-      !organizationId ||
-      !firstName ||
-      !lastName ||
-      !email ||
-      !password ||
-      !roleId
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "organizationId, firstName, lastName, email, password and roleId are required",
-      });
+    if (!organizationId || !firstName || !lastName || !email || !password || !roleId) {
+      throw badRequest("organizationId, firstName, lastName, email, password and roleId are required");
     }
 
-    // 2. Validate organization ID
-    if (!mongoose.Types.ObjectId.isValid(organizationId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid organizationId",
-      });
-    }
+    if (!mongoose.Types.ObjectId.isValid(organizationId)) throw badRequest("Invalid organizationId");
+    if (!mongoose.Types.ObjectId.isValid(roleId)) throw badRequest("Invalid roleId");
 
-    // 3. Validate role ID
-    if (!mongoose.Types.ObjectId.isValid(roleId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid roleId",
-      });
-    }
-
-    // 4. Check organization
     const organization = await Organization.findById(organizationId);
+    if (!organization) throw notFound("Organization");
+    if (organization.status !== "active") throw forbidden("Organization is not active");
 
-    if (!organization) {
-      return res.status(404).json({
-        success: false,
-        message: "Organization not found",
-      });
-    }
-
-    // 5. Check organization status
-    if (organization.status !== "active") {
-      return res.status(403).json({
-        success: false,
-        message: "Organization is not active",
-      });
-    }
-
-    // 6. Check role
     const role = await Role.findById(roleId);
+    if (!role) throw notFound("Role");
+    if (role.organizationId.toString() !== organizationId.toString()) throw badRequest("Role does not belong to this organization");
+    if (!role.isActive) throw forbidden("Role is inactive");
 
-    if (!role) {
-      return res.status(404).json({
-        success: false,
-        message: "Role not found",
-      });
-    }
-
-    // 7. Check role belongs to organization
-    if (role.organizationId.toString() !== organizationId.toString()) {
-      return res.status(400).json({
-        success: false,
-        message: "Role does not belong to this organization",
-      });
-    }
-
-    // 8. Check role status
-    if (!role.isActive) {
-      return res.status(403).json({
-        success: false,
-        message: "Role is inactive",
-      });
-    }
-
-    // 9. Normalize email
     const normalizedEmail = email.trim().toLowerCase();
+    const existingUser = await User.findOne({ email: normalizedEmail });
+    if (existingUser) throw conflict("An account with this email already exists");
 
-    // 10. Check existing user
-    const existingUser = await User.findOne({
-      email: normalizedEmail,
-    });
+    if (password.length < 6) throw badRequest("Password must be at least 6 characters");
 
-    if (existingUser) {
-      return res.status(409).json({
-        success: false,
-        message: "An account with this email already exists",
-      });
-    }
+    const hashedPassword = await bcrypt.hash(password, 12);
 
-    // 11. Validate password
-    if (password.length < 6) {
-      return res.status(400).json({
-        success: false,
-        message: "Password must be at least 6 characters",
-      });
-    }
-
-    // 12. Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // 13. Create user
     const user = await User.create({
       organizationId,
       firstName: firstName.trim(),
@@ -124,123 +48,104 @@ export const signup = async (req, res) => {
       roleId,
     });
 
-    // 14. Remove password
+    await createAuditLog({
+      organizationId,
+      actorId: user._id,
+      action: "signup",
+      resourceType: "user",
+      resourceId: user._id,
+      metadata: { email: normalizedEmail, roleId },
+      req,
+    });
+
     const userResponse = user.toObject();
     delete userResponse.password;
+    delete userResponse.accessHistory;
 
     return res.status(201).json({
       success: true,
       message: "Signup successful",
       data: userResponse,
     });
-  } catch (error) {
-    console.error("Signup error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error",
-    });
+  } catch (err) {
+    next(err);
   }
 };
 
-// LOGIN
-export const login = async (req, res) => {
+// ── LOGIN ─────────────────────────────────────────────────────────────────────
+export const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
 
-    // 1. Required fields
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "Email and password are required",
-      });
-    }
+    if (!email || !password) throw badRequest("Email and password are required");
 
-    // 2. Normalize email
     const normalizedEmail = email.trim().toLowerCase();
-
-    // 3. Find user
-    const user = await User.findOne({
-      email: normalizedEmail,
-    });
+    const user = await User.findOne({ email: normalizedEmail, deletedAt: null });
 
     if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid email or password",
-      });
+      // Don't reveal whether the email exists
+      throw unauthorized("Invalid email or password");
     }
 
-    // 4. Check user status
-    if (user.status !== "active") {
-      return res.status(403).json({
-        success: false,
-        message: "User account is inactive",
-      });
-    }
+    if (user.status !== "active") throw forbidden("User account is inactive");
 
-    // 5. Check password
     const isPasswordCorrect = await bcrypt.compare(password, user.password);
-
     if (!isPasswordCorrect) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid email or password",
-      });
-    }
-
-    // 6. Check organization
-    const organization = await Organization.findById(user.organizationId);
-
-    if (!organization) {
-      return res.status(404).json({
-        success: false,
-        message: "Organization not found",
-      });
-    }
-
-    // 7. Check organization status
-    if (organization.status !== "active") {
-      return res.status(403).json({
-        success: false,
-        message: "Organization is not active",
-      });
-    }
-
-    // 8. Check role
-    const role = await Role.findById(user.roleId);
-
-    if (!role) {
-      return res.status(404).json({
-        success: false,
-        message: "User role not found",
-      });
-    }
-
-    // 9. Check role status
-    if (!role.isActive) {
-      return res.status(403).json({
-        success: false,
-        message: "User role is inactive",
-      });
-    }
-
-    // 10. Create JWT
-    const token = jwt.sign(
-      {
-        userId: user._id,
+      await createAuditLog({
         organizationId: user.organizationId,
-        roleId: user.roleId,
-      },
+        actorId: user._id,
+        action: "login",
+        resourceType: "user",
+        resourceId: user._id,
+        metadata: { email: normalizedEmail },
+        outcome: "failure",
+        req,
+      });
+      throw unauthorized("Invalid email or password");
+    }
+
+    const organization = await Organization.findById(user.organizationId);
+    if (!organization) throw notFound("Organization");
+    if (organization.status !== "active") throw forbidden("Organization is not active");
+
+    const role = await Role.findById(user.roleId);
+    if (!role) throw notFound("User role");
+    if (!role.isActive) throw forbidden("User role is inactive");
+
+    const token = jwt.sign(
+      { userId: user._id, organizationId: user.organizationId, roleId: user.roleId },
       process.env.JWT_SECRET,
-      {
-        expiresIn: "1d",
-      },
+      { expiresIn: process.env.JWT_EXPIRES_IN || "1d" }
     );
 
-    // 11. User response
+    // Update lastLogin + cap accessHistory at 20 entries
+    const ip = req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "";
+    const ua = req.headers["user-agent"] || "";
+    const newAccessEvent = { action: "login", timestamp: new Date(), ipAddress: ip, userAgent: ua };
+
+    await User.findByIdAndUpdate(user._id, {
+      lastLogin: new Date(),
+      $push: {
+        accessHistory: {
+          $each: [newAccessEvent],
+          $slice: -20,
+        },
+      },
+    });
+
+    await createAuditLog({
+      organizationId: user.organizationId,
+      actorId: user._id,
+      action: "login",
+      resourceType: "user",
+      resourceId: user._id,
+      metadata: { email: normalizedEmail, roleName: role.name },
+      req,
+    });
+
     const userResponse = user.toObject();
     delete userResponse.password;
+    delete userResponse.accessHistory;
 
     return res.status(200).json({
       success: true,
@@ -248,19 +153,29 @@ export const login = async (req, res) => {
       token,
       data: {
         user: userResponse,
-        role: {
-          id: role._id,
-          name: role.name,
-          description: role.description,
-        },
+        role: { id: role._id, name: role.name, description: role.description },
       },
     });
-  } catch (error) {
-    console.error("Login error:", error);
+  } catch (err) {
+    next(err);
+  }
+};
 
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error",
+// ── GET ME ────────────────────────────────────────────────────────────────────
+export const getMe = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user._id)
+      .select("-password -accessHistory")
+      .populate("roleId", "name description");
+
+    if (!user) throw notFound("User");
+
+    return res.status(200).json({
+      success: true,
+      message: "Current user fetched",
+      data: user,
     });
+  } catch (err) {
+    next(err);
   }
 };

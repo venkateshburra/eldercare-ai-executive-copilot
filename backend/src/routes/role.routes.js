@@ -1,4 +1,6 @@
 import express from "express";
+import { protect } from "../middleware/auth.middleware.js";
+import { authorize } from "../middleware/permission.middleware.js";
 
 import {
   createRole,
@@ -10,6 +12,8 @@ import {
 } from "../controllers/role.controller.js";
 
 const router = express.Router();
+
+router.use(protect);
 
 router.post("/", createRole);
 router.get("/", getRoles);

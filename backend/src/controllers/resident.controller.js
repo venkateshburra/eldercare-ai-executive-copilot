@@ -1,212 +1,132 @@
+// src/controllers/resident.controller.js
 import mongoose from "mongoose";
 import Resident from "../models/Resident.js";
+import { createAuditLog } from "../services/audit.service.js";
+import { notFound, badRequest } from "../utils/error.js";
+import logger from "../utils/logger.js";
 
-// Create Resident
-export const createResident = async (req, res) => {
+const paginate = (q, page, limit) => q.skip((page - 1) * limit).limit(limit);
+
+export const createResident = async (req, res, next) => {
   try {
-    const {
-      firstName,
-      lastName,
-      dateOfBirth,
-      gender,
-      phone,
-      email,
-      roomNumber,
-      admissionDate,
-      status,
-      notes,
-    } = req.body;
+    const { firstName, lastName, dateOfBirth, gender, phone, email, roomNumber, admissionDate, status, notes } = req.body;
 
-    // Required fields
     if (!firstName || !lastName || !dateOfBirth || !gender || !admissionDate) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "firstName, lastName, dateOfBirth, gender and admissionDate are required",
-      });
+      throw badRequest("firstName, lastName, dateOfBirth, gender and admissionDate are required");
     }
 
-    // Organization comes from authenticated user
-    const organizationId = req.user.organizationId;
-
     const resident = await Resident.create({
-      organizationId,
-      firstName,
-      lastName,
+      organizationId: req.user.organizationId,
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
       dateOfBirth,
       gender,
       phone,
-      email,
+      email: email ? email.trim().toLowerCase() : undefined,
       roomNumber,
       admissionDate,
-      status,
+      status: status || "active",
       notes,
     });
 
-    res.status(201).json({
-      success: true,
-      message: "Resident created successfully",
-      data: resident,
+    await createAuditLog({
+      organizationId: req.user.organizationId,
+      actorId: req.user._id,
+      action: "create",
+      resourceType: "resident",
+      resourceId: resident._id,
+      metadata: { firstName, lastName },
+      req,
     });
-  } catch (error) {
-    console.error("Create resident error:", error);
 
-    res.status(500).json({
-      success: false,
-      message: "Internal server error",
-    });
-  }
+    res.status(201).json({ success: true, message: "Resident created successfully", data: resident });
+  } catch (err) { next(err); }
 };
 
-// Get All Residents
-export const getResidents = async (req, res) => {
+export const getResidents = async (req, res, next) => {
   try {
-    const residents = await Resident.find({
-      organizationId: req.user.organizationId,
-    }).sort({ createdAt: -1 });
+    const { page = 1, limit = 20, status, gender, search } = req.query;
+    const filter = { organizationId: req.user.organizationId };
+    if (status) filter.status = status;
+    if (gender) filter.gender = gender;
+    if (search) {
+      const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      filter.$or = [{ firstName: regex }, { lastName: regex }, { roomNumber: regex }];
+    }
+
+    const total = await Resident.countDocuments(filter);
+    const residents = await paginate(
+      Resident.find(filter).sort({ createdAt: -1 }),
+      Number(page), Number(limit)
+    );
 
     res.status(200).json({
       success: true,
       message: "Residents fetched successfully",
       data: residents,
+      pagination: { page: Number(page), limit: Number(limit), total, totalPages: Math.ceil(total / limit) },
     });
-  } catch (error) {
-    console.error("Get residents error:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Internal server error",
-    });
-  }
+  } catch (err) { next(err); }
 };
 
-// Get Resident By ID
-export const getResidentById = async (req, res) => {
+export const getResidentById = async (req, res, next) => {
   try {
     const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) throw badRequest("Invalid resident ID");
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid resident ID",
-      });
-    }
+    const resident = await Resident.findOne({ _id: id, organizationId: req.user.organizationId });
+    if (!resident) throw notFound("Resident");
 
-    const resident = await Resident.findOne({
-      _id: id,
-      organizationId: req.user.organizationId,
-    });
-
-    if (!resident) {
-      return res.status(404).json({
-        success: false,
-        message: "Resident not found",
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      message: "Resident fetched successfully",
-      data: resident,
-    });
-  } catch (error) {
-    console.error("Get resident error:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Internal server error",
-    });
-  }
+    res.status(200).json({ success: true, message: "Resident fetched successfully", data: resident });
+  } catch (err) { next(err); }
 };
 
-// Update Resident
-export const updateResident = async (req, res) => {
+export const updateResident = async (req, res, next) => {
   try {
     const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) throw badRequest("Invalid resident ID");
+    if (req.body.organizationId) throw badRequest("organizationId cannot be changed");
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid resident ID",
-      });
-    }
-
-    // Never allow organization to be changed
-    if (req.body.organizationId) {
-      return res.status(400).json({
-        success: false,
-        message: "organizationId cannot be changed",
-      });
-    }
+    const existing = await Resident.findOne({ _id: id, organizationId: req.user.organizationId });
+    if (!existing) throw notFound("Resident");
 
     const resident = await Resident.findOneAndUpdate(
-      {
-        _id: id,
-        organizationId: req.user.organizationId,
-      },
+      { _id: id, organizationId: req.user.organizationId },
       req.body,
-      {
-        new: true,
-        runValidators: true,
-      }
+      { new: true, runValidators: true }
     );
 
-    if (!resident) {
-      return res.status(404).json({
-        success: false,
-        message: "Resident not found",
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      message: "Resident updated successfully",
-      data: resident,
+    await createAuditLog({
+      organizationId: req.user.organizationId,
+      actorId: req.user._id,
+      action: "update",
+      resourceType: "resident",
+      resourceId: id,
+      metadata: req.body,
+      req,
     });
-  } catch (error) {
-    console.error("Update resident error:", error);
 
-    res.status(500).json({
-      success: false,
-      message: "Internal server error",
-    });
-  }
+    res.status(200).json({ success: true, message: "Resident updated successfully", data: resident });
+  } catch (err) { next(err); }
 };
 
-// Delete Resident
-export const deleteResident = async (req, res) => {
+export const deleteResident = async (req, res, next) => {
   try {
     const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) throw badRequest("Invalid resident ID");
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid resident ID",
-      });
-    }
+    const resident = await Resident.findOneAndDelete({ _id: id, organizationId: req.user.organizationId });
+    if (!resident) throw notFound("Resident");
 
-    const resident = await Resident.findOneAndDelete({
-      _id: id,
+    await createAuditLog({
       organizationId: req.user.organizationId,
+      actorId: req.user._id,
+      action: "delete",
+      resourceType: "resident",
+      resourceId: id,
+      req,
     });
 
-    if (!resident) {
-      return res.status(404).json({
-        success: false,
-        message: "Resident not found",
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      message: "Resident deleted successfully",
-    });
-  } catch (error) {
-    console.error("Delete resident error:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Internal server error",
-    });
-  }
+    res.status(200).json({ success: true, message: "Resident deleted successfully" });
+  } catch (err) { next(err); }
 };
