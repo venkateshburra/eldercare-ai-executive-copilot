@@ -19,7 +19,6 @@ const router = express.Router();
 router.get(
   "/dashboard",
   protect,
-  authorize("reports.view"),
   getDashboardSummary,
 );
 

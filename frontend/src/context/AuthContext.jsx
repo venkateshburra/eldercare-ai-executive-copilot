@@ -23,6 +23,14 @@ export const AuthProvider = ({ children }) => {
       return null;
     }
   });
+  const [permissions, setPermissions] = useState(() => {
+    try {
+      const savedPerms = localStorage.getItem("eldercare_permissions");
+      return savedPerms ? JSON.parse(savedPerms) : [];
+    } catch {
+      return [];
+    }
+  });
   const [loading, setLoading] = useState(true);
 
   // Fetch current user details on mount if token exists
@@ -32,12 +40,25 @@ export const AuthProvider = ({ children }) => {
         try {
           const res = await api.get("/auth/me");
           if (res.data?.data) {
-            setUser(res.data.data);
-            setRole(res.data.data.roleId || null);
-            localStorage.setItem("eldercare_user", JSON.stringify(res.data.data));
-            if (res.data.data.roleId) {
-              localStorage.setItem("eldercare_role", JSON.stringify(res.data.data.roleId));
+            const userData = res.data.data;
+            setUser(userData);
+            const userRole = userData.roleId || null;
+            setRole(userRole);
+
+            const userPerms =
+              userData.permissions ||
+              userRole?.permissions ||
+              (Array.isArray(userRole?.permissionIds)
+                ? userRole.permissionIds.map((p) => (typeof p === "object" ? p.name : p))
+                : []);
+
+            setPermissions(userPerms);
+
+            localStorage.setItem("eldercare_user", JSON.stringify(userData));
+            if (userRole) {
+              localStorage.setItem("eldercare_role", JSON.stringify(userRole));
             }
+            localStorage.setItem("eldercare_permissions", JSON.stringify(userPerms));
           }
         } catch {
           logout();
@@ -58,9 +79,13 @@ export const AuthProvider = ({ children }) => {
       setUser(data.user);
       setRole(data.role);
 
+      const userPerms = data.role?.permissions || [];
+      setPermissions(userPerms);
+
       localStorage.setItem("eldercare_token", newToken);
       localStorage.setItem("eldercare_user", JSON.stringify(data.user));
       localStorage.setItem("eldercare_role", JSON.stringify(data.role));
+      localStorage.setItem("eldercare_permissions", JSON.stringify(userPerms));
 
       toast.success(`Welcome back, ${data.user.firstName}!`);
       return true;
@@ -75,22 +100,43 @@ export const AuthProvider = ({ children }) => {
     setToken(null);
     setUser(null);
     setRole(null);
+    setPermissions([]);
     localStorage.removeItem("eldercare_token");
     localStorage.removeItem("eldercare_user");
     localStorage.removeItem("eldercare_role");
+    localStorage.removeItem("eldercare_permissions");
     toast.success("Logged out successfully");
   };
 
+  /**
+   * Check if current user has permission to access a feature or page.
+   * Executive role has full organizational oversight across all features.
+   */
   const hasPermission = (permissionName) => {
     if (!role) return false;
     if (role.name === "Executive") return true; // Executive has super-user access
-    // If permissions are populated on role
+    if (!permissionName) return true; // Public to all authenticated users
+
+    // Direct permission match
+    if (Array.isArray(permissions) && permissions.includes(permissionName)) {
+      return true;
+    }
+
+    // Role permissionIds fallback
     if (Array.isArray(role.permissionIds)) {
       return role.permissionIds.some(
         (p) => (typeof p === "string" ? p === permissionName : p.name === permissionName)
       );
     }
-    return true;
+
+    return false;
+  };
+
+  const hasAnyPermission = (permissionList) => {
+    if (!role) return false;
+    if (role.name === "Executive") return true;
+    if (!permissionList || permissionList.length === 0) return true;
+    return permissionList.some((p) => hasPermission(p));
   };
 
   return (
@@ -100,10 +146,12 @@ export const AuthProvider = ({ children }) => {
         user,
         role,
         roleName: role?.name || "Executive",
+        permissions,
         loading,
         login,
         logout,
         hasPermission,
+        hasAnyPermission,
         isAuthenticated: !!token && !!user,
       }}
     >

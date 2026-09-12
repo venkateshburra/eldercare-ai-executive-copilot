@@ -52,7 +52,10 @@ export const createRole = async (req, res) => {
 // Get All Roles
 export const getRoles = async (req, res) => {
   try {
-    const roles = await Role.find({ organizationId: req.user.organizationId });
+    const roles = await Role.find({ organizationId: req.user.organizationId }).populate(
+      "permissionIds",
+      "name description"
+    );
 
     res.status(200).json({
       success: true,

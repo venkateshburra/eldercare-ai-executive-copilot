@@ -21,7 +21,7 @@ function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
 
   if (loading) {
-    return <LoadingSpinner fullScreen label="Checking SilverCare session..." />;
+    return <LoadingSpinner fullScreen text="Checking SilverCare session..." />;
   }
 
   if (!user) {
@@ -31,11 +31,25 @@ function ProtectedRoute({ children }) {
   return children;
 }
 
+function PermissionRoute({ permission, children }) {
+  const { hasPermission, loading } = useAuth();
+
+  if (loading) {
+    return <LoadingSpinner text="Validating role permissions..." />;
+  }
+
+  if (permission && !hasPermission(permission)) {
+    return <Navigate to="/" replace />;
+  }
+
+  return children;
+}
+
 function PublicRoute({ children }) {
   const { user, loading } = useAuth();
 
   if (loading) {
-    return <LoadingSpinner fullScreen label="Loading SilverCare portal..." />;
+    return <LoadingSpinner fullScreen text="Loading SilverCare portal..." />;
   }
 
   if (user) {
@@ -68,17 +82,97 @@ export default function App() {
             </ProtectedRoute>
           }
         >
+          {/* Executive Overview is accessible to all authenticated roles */}
           <Route index element={<ExecutiveDashboardPage />} />
-          <Route path="knowledge-search" element={<KnowledgeSearchPage />} />
-          <Route path="scenario-builder" element={<ScenarioBuilderPage />} />
-          <Route path="decisions" element={<BriefingsDecisionsPage />} />
-          <Route path="ai-qa" element={<SourceCitedQAPage />} />
-          <Route path="sensitivity-analysis" element={<SensitivityAnalysisPage />} />
-          <Route path="outcome-review" element={<OutcomeReviewPage />} />
-          <Route path="reports" element={<ReportsAnalyticsPage />} />
+
+          {/* AI Knowledge & Chat */}
+          <Route
+            path="knowledge-search"
+            element={
+              <PermissionRoute permission="ai.use">
+                <KnowledgeSearchPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="ai-qa"
+            element={
+              <PermissionRoute permission="ai.use">
+                <SourceCitedQAPage />
+              </PermissionRoute>
+            }
+          />
+
+          {/* Scenarios & Sensitivity Analysis */}
+          <Route
+            path="scenario-builder"
+            element={
+              <PermissionRoute permission="scenarios.view">
+                <ScenarioBuilderPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="sensitivity-analysis"
+            element={
+              <PermissionRoute permission="scenarios.view">
+                <SensitivityAnalysisPage />
+              </PermissionRoute>
+            }
+          />
+
+          {/* Decisions */}
+          <Route
+            path="decisions"
+            element={
+              <PermissionRoute permission="decisions.view">
+                <BriefingsDecisionsPage />
+              </PermissionRoute>
+            }
+          />
+
+          {/* Model Drift & Outcome Review */}
+          <Route
+            path="outcome-review"
+            element={
+              <PermissionRoute permission="ai.review">
+                <OutcomeReviewPage />
+              </PermissionRoute>
+            }
+          />
+
+          {/* Operational Reports */}
+          <Route
+            path="reports"
+            element={
+              <PermissionRoute permission="reports.view">
+                <ReportsAnalyticsPage />
+              </PermissionRoute>
+            }
+          />
+
+          {/* Notifications */}
           <Route path="notifications" element={<NotificationsPage />} />
-          <Route path="users" element={<UserRoleManagementPage />} />
-          <Route path="settings" element={<AuditSettingsPage />} />
+
+          {/* Administration - Users & Roles requires users.manage (Executive only) */}
+          <Route
+            path="users"
+            element={
+              <PermissionRoute permission="users.manage">
+                <UserRoleManagementPage />
+              </PermissionRoute>
+            }
+          />
+
+          {/* Audit Logs & Settings */}
+          <Route
+            path="settings"
+            element={
+              <PermissionRoute permission="auditLogs.view">
+                <AuditSettingsPage />
+              </PermissionRoute>
+            }
+          />
         </Route>
 
         {/* Catch-all fallback */}

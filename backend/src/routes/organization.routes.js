@@ -1,8 +1,14 @@
 import express from "express";
-import { createOrganization } from "../controllers/organization.controller.js";
+import { protect } from "../middleware/auth.middleware.js";
+import { authorize } from "../middleware/permission.middleware.js";
+import {
+  createOrganization,
+  getOrganizations,
+} from "../controllers/organization.controller.js";
 
 const router = express.Router();
 
-router.post("/", createOrganization);
+router.get("/", protect, authorize("users.manage"), getOrganizations);
+router.post("/", protect, authorize("users.manage"), createOrganization);
 
 export default router;

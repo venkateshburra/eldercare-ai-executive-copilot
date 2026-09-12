@@ -9,6 +9,7 @@ const router = express.Router();
 router.use(protect);
 
 router.get("/", authorize("settings.view"), getSettings);
+router.put("/", authorize("settings.manage"), updateSettings);
 router.patch("/", authorize("settings.manage"), updateSettings);
 
 export default router;

@@ -95,11 +95,19 @@ export const createUser = async (req, res) => {
 // Get All Users
 export const getUsers = async (req, res) => {
   try {
-    const users = await User.find({
-      organizationId: req.user.organizationId,
-    })
+    const { organizationId, all } = req.query;
+    let query = { organizationId: req.user.organizationId };
+
+    if (all === "true") {
+      query = {};
+    } else if (organizationId) {
+      query = { organizationId };
+    }
+
+    const users = await User.find(query)
       .select("-password")
-      .populate("roleId", "name description");
+      .populate("roleId", "name description")
+      .populate("organizationId", "name slug");
 
     res.status(200).json({
       success: true,

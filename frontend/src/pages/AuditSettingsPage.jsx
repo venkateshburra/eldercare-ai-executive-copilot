@@ -203,7 +203,7 @@ export const AuditSettingsPage = () => {
                           {log.resourceType}
                         </td>
                         <td className="py-3 px-4 text-slate-500 font-mono text-[11px]">
-                          {log.actorId ? String(log.actorId).slice(-8) : "System"}
+                          {log.actorId._id ? String(log.actorId._id) : "System"}
                         </td>
                         <td className="py-3 px-4 text-slate-500 font-mono text-[11px]">
                           {log.ipAddress || "127.0.0.1"}

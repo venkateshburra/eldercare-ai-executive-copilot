@@ -108,9 +108,13 @@ export const login = async (req, res, next) => {
     if (!organization) throw notFound("Organization");
     if (organization.status !== "active") throw forbidden("Organization is not active");
 
-    const role = await Role.findById(user.roleId);
+    const role = await Role.findById(user.roleId).populate("permissionIds", "name description");
     if (!role) throw notFound("User role");
     if (!role.isActive) throw forbidden("User role is inactive");
+
+    const permissions = (role.permissionIds || []).map((p) =>
+      typeof p === "object" && p !== null ? p.name : p
+    );
 
     const token = jwt.sign(
       { userId: user._id, organizationId: user.organizationId, roleId: user.roleId },
@@ -153,7 +157,13 @@ export const login = async (req, res, next) => {
       token,
       data: {
         user: userResponse,
-        role: { id: role._id, name: role.name, description: role.description },
+        role: {
+          id: role._id,
+          name: role.name,
+          description: role.description,
+          permissions,
+          permissionIds: role.permissionIds,
+        },
       },
     });
   } catch (err) {
@@ -166,14 +176,27 @@ export const getMe = async (req, res, next) => {
   try {
     const user = await User.findById(req.user._id)
       .select("-password -accessHistory")
-      .populate("roleId", "name description");
+      .populate({
+        path: "roleId",
+        select: "name description permissionIds",
+        populate: { path: "permissionIds", select: "name description" },
+      });
 
     if (!user) throw notFound("User");
+
+    const userObj = user.toObject();
+    const permissions = (userObj.roleId?.permissionIds || []).map((p) =>
+      typeof p === "object" && p !== null ? p.name : p
+    );
+    userObj.permissions = permissions;
+    if (userObj.roleId) {
+      userObj.roleId.permissions = permissions;
+    }
 
     return res.status(200).json({
       success: true,
       message: "Current user fetched",
-      data: user,
+      data: userObj,
     });
   } catch (err) {
     next(err);

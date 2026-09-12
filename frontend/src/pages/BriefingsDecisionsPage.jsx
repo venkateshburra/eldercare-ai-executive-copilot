@@ -16,8 +16,11 @@ import {
   FiShield,
 } from "react-icons/fi";
 import toast from "react-hot-toast";
+import { useAuth } from "../context/AuthContext";
 
 export const BriefingsDecisionsPage = () => {
+  const { hasPermission } = useAuth();
+  const canManageDecisions = hasPermission("decisions.manage");
   const [decisions, setDecisions] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -180,13 +183,15 @@ export const BriefingsDecisionsPage = () => {
             <FiFileText className="w-4 h-4" />
             {generatingBriefing ? "Synthesizing..." : "Generate AI Daily Briefing"}
           </button>
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="btn-secondary"
-          >
-            <FiPlus className="w-4 h-4" />
-            New Decision
-          </button>
+          {canManageDecisions && (
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="btn-secondary"
+            >
+              <FiPlus className="w-4 h-4" />
+              New Decision
+            </button>
+          )}
         </div>
       </div>
 

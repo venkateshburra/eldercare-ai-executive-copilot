@@ -103,7 +103,7 @@ export const SourceCitedQAPage = () => {
       </div>
 
       {/* Main Chat Container */}
-      <div className="card-panel bg-white flex flex-col h-[650px] shadow-xs overflow-hidden">
+      <div className="card-panel bg-white flex flex-col h-[550px] shadow-xs overflow-hidden">
         {/* Messages List Area */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-slate-50/50">
           {messages.map((msg, idx) => (

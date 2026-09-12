@@ -14,6 +14,7 @@ import User from "./models/User.js";
 import Resident from "./models/Resident.js";
 import Staff from "./models/Staff.js";
 import Shift from "./models/Shift.js";
+import FamilyMember from "./models/FamilyMember.js";
 import CarePlan from "./models/CarePlan.js";
 import Medication from "./models/Medication.js";
 import Activity from "./models/Activity.js";
@@ -326,6 +327,140 @@ const runSeed = async () => {
     }
 
     const staffList = await Staff.find({ organizationId: orgId });
+
+    // 7.1 Shifts
+    const existingShifts = await Shift.countDocuments({ organizationId: orgId });
+    if (existingShifts === 0 && staffList.length > 0) {
+      const shiftData = [
+        {
+          staffId: staffList[0]._id,
+          date: new Date(),
+          startTime: "07:00",
+          endTime: "15:00",
+          shiftType: "morning",
+          status: "in_progress",
+          handoverNotes: "Morning medication pass completed. Vitals stable across Wing A.",
+          createdBy: actorId,
+        },
+        {
+          staffId: staffList[1]._id,
+          date: new Date(),
+          startTime: "07:00",
+          endTime: "15:00",
+          shiftType: "morning",
+          status: "in_progress",
+          handoverNotes: "Memory Care sensory activities scheduled for 10:30 AM.",
+          createdBy: actorId,
+        },
+        {
+          staffId: staffList[2]._id,
+          date: new Date(),
+          startTime: "15:00",
+          endTime: "23:00",
+          shiftType: "afternoon",
+          status: "scheduled",
+          handoverNotes: "Physical therapy handover scheduled for Arthur Pendelton.",
+          createdBy: actorId,
+        },
+        {
+          staffId: staffList[3]._id,
+          date: new Date(),
+          startTime: "23:00",
+          endTime: "07:00",
+          shiftType: "night",
+          status: "scheduled",
+          handoverNotes: "Night checks every 60 mins on high fall risk rooms 102 and 201.",
+          createdBy: actorId,
+        },
+        {
+          staffId: staffList[0]._id,
+          date: new Date(Date.now() - 86400000),
+          startTime: "07:00",
+          endTime: "15:00",
+          shiftType: "morning",
+          status: "completed",
+          handoverNotes: "All meals assisted. Incident slip in bathroom reported and checked.",
+          createdBy: actorId,
+        },
+      ];
+      await Shift.insertMany(shiftData.map(s => ({ ...s, organizationId: orgId })));
+      console.log("Seeded 5 Staff Shifts.");
+    }
+
+    // 7.2 Family Members & Relationships
+    const existingFamily = await FamilyMember.countDocuments({ organizationId: orgId });
+    if (existingFamily === 0 && residents.length > 0) {
+      const familyData = [
+        {
+          residentId: residents[0]._id,
+          firstName: "Claire",
+          lastName: "Vance-Howard",
+          relationship: "Daughter",
+          email: "claire.vance@example.com",
+          phone: "555-234-1101",
+          isPrimaryContact: true,
+          status: "active",
+          notes: "Primary healthcare proxy and emergency contact. Calls every Sunday.",
+        },
+        {
+          residentId: residents[0]._id,
+          firstName: "Julian",
+          lastName: "Vance",
+          relationship: "Son",
+          email: "julian.vance@example.com",
+          phone: "555-234-1102",
+          isPrimaryContact: false,
+          status: "active",
+          notes: "Lives out of state; visits quarterly.",
+        },
+        {
+          residentId: residents[1]._id,
+          firstName: "Thomas",
+          lastName: "Pendelton Jr.",
+          relationship: "Son",
+          email: "t.pendelton@example.com",
+          phone: "555-234-2201",
+          isPrimaryContact: true,
+          status: "active",
+          notes: "Authorized for medical consent and financial oversight.",
+        },
+        {
+          residentId: residents[2]._id,
+          firstName: "Sarah",
+          lastName: "Hughes-Miller",
+          relationship: "Daughter",
+          email: "sarah.miller@example.com",
+          phone: "555-234-3301",
+          isPrimaryContact: true,
+          status: "active",
+          notes: "Attends care plan reviews via video conference.",
+        },
+        {
+          residentId: residents[3]._id,
+          firstName: "Grace",
+          lastName: "Chen",
+          relationship: "Spouse",
+          email: "grace.chen@example.com",
+          phone: "555-234-4401",
+          isPrimaryContact: true,
+          status: "active",
+          notes: "Visits daily at lunch. Assists with feeding if needed.",
+        },
+        {
+          residentId: residents[4]._id,
+          firstName: "Robert",
+          lastName: "Miller",
+          relationship: "Son",
+          email: "robert.m@example.com",
+          phone: "555-234-5501",
+          isPrimaryContact: true,
+          status: "active",
+          notes: "Designated legal guardian and power of attorney.",
+        },
+      ];
+      await FamilyMember.insertMany(familyData.map(f => ({ ...f, organizationId: orgId })));
+      console.log("Seeded 6 Family Members & Relationships.");
+    }
 
     // 8. Care Plans
     const existingCarePlans = await CarePlan.countDocuments({ organizationId: orgId });

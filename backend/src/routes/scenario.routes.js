@@ -21,6 +21,7 @@ router.get("/",                     authorize("scenarios.view"),   getScenarios)
 router.post("/",                    authorize("scenarios.manage"), createScenario);
 router.post("/compare",             authorize("scenarios.view"),   compareScenarios);
 router.get("/:id",                  authorize("scenarios.view"),   getScenarioById);
+router.put("/:id",                  authorize("scenarios.manage"), updateScenario);
 router.patch("/:id",                authorize("scenarios.manage"), updateScenario);
 router.post("/:id/versions",        authorize("scenarios.manage"), createScenarioVersion);
 router.post("/:id/simulate",        authorize("scenarios.manage"), simulateScenario);
