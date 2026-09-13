@@ -95,14 +95,7 @@ export const createUser = async (req, res) => {
 // Get All Users
 export const getUsers = async (req, res) => {
   try {
-    const { organizationId, all } = req.query;
-    let query = { organizationId: req.user.organizationId };
-
-    if (all === "true") {
-      query = {};
-    } else if (organizationId) {
-      query = { organizationId };
-    }
+    const query = { organizationId: req.user.organizationId };
 
     const users = await User.find(query)
       .select("-password")

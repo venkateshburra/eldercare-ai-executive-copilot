@@ -11,23 +11,18 @@ import {
   FiKey,
   FiCheck,
   FiX,
-  FiLayers,
   FiGlobe,
-  FiCheckCircle,
-  FiAlertCircle,
 } from "react-icons/fi";
 import toast from "react-hot-toast";
+import { useAuth } from "../context/AuthContext";
 
 export const UserRoleManagementPage = () => {
+  const { user } = useAuth();
   const [users, setUsers] = useState([]);
   const [roles, setRoles] = useState([]);
-  const [organizations, setOrganizations] = useState([]);
   const [availablePermissions, setAvailablePermissions] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Filters & Tabs
-  const [activeTab, setActiveTab] = useState("users"); // 'users' | 'organizations'
-  const [selectedOrgFilter, setSelectedOrgFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
 
   // Create User Modal State
@@ -39,12 +34,6 @@ export const UserRoleManagementPage = () => {
   const [roleId, setRoleId] = useState("");
   const [creatingUser, setCreatingUser] = useState(false);
 
-  // Create Organization Modal State
-  const [showCreateOrgModal, setShowCreateOrgModal] = useState(false);
-  const [newOrgName, setNewOrgName] = useState("");
-  const [newOrgSlug, setNewOrgSlug] = useState("");
-  const [creatingOrg, setCreatingOrg] = useState(false);
-
   // Role Permissions Modal State
   const [editingRole, setEditingRole] = useState(null);
   const [selectedPermIds, setSelectedPermIds] = useState(new Set());
@@ -55,10 +44,9 @@ export const UserRoleManagementPage = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [usersRes, rolesRes, orgsRes, permsRes] = await Promise.all([
-        api.get("/users?all=true"),
+      const [usersRes, rolesRes, permsRes] = await Promise.all([
+        api.get("/users"),
         api.get("/roles"),
-        api.get("/organizations"),
         api.get("/permissions"),
       ]);
 
@@ -68,7 +56,6 @@ export const UserRoleManagementPage = () => {
       if (roleList.length > 0 && !roleId) {
         setRoleId(roleList[0]._id);
       }
-      setOrganizations(orgsRes.data?.data || []);
       setAvailablePermissions(permsRes.data?.data || []);
     } catch (err) {
       toast.error(err.response?.data?.message || "Failed to load directory data");
@@ -123,33 +110,6 @@ export const UserRoleManagementPage = () => {
       toast.success(`${targetUser.firstName}'s status set to ${newStatus}`);
     } catch (err) {
       toast.error(err.response?.data?.message || "Failed to update user status");
-    }
-  };
-
-  // ── Organization Creation ────────────────────────────────────────────────────
-  const handleCreateOrganization = async (e) => {
-    e.preventDefault();
-    if (!newOrgName.trim()) {
-      toast.error("Organization name is required");
-      return;
-    }
-
-    setCreatingOrg(true);
-    try {
-      const res = await api.post("/organizations", {
-        name: newOrgName.trim(),
-        slug: newOrgSlug.trim() || undefined,
-      });
-
-      toast.success("Organization created with 4 standard roles and 17 permissions!");
-      setShowCreateOrgModal(false);
-      setNewOrgName("");
-      setNewOrgSlug("");
-      loadData();
-    } catch (err) {
-      toast.error(err.response?.data?.message || "Failed to create organization");
-    } finally {
-      setCreatingOrg(false);
     }
   };
 
@@ -250,14 +210,7 @@ export const UserRoleManagementPage = () => {
   // ── Filtered Users List ──────────────────────────────────────────────────────
   const filteredUsers = useMemo(() => {
     return users.filter((u) => {
-      // Organization filter
-      if (selectedOrgFilter !== "all") {
-        const uOrgId =
-          typeof u.organizationId === "object" && u.organizationId !== null
-            ? u.organizationId._id
-            : u.organizationId;
-        if (String(uOrgId) !== String(selectedOrgFilter)) return false;
-      }
+      if (String(u._id) === String(user?._id)) return false;
 
       // Search filter
       if (searchQuery.trim()) {
@@ -276,7 +229,18 @@ export const UserRoleManagementPage = () => {
 
       return true;
     });
-  }, [users, selectedOrgFilter, searchQuery]);
+  }, [users, searchQuery, user?._id]);
+
+  const usersByRole = useMemo(() => {
+    return roles.reduce((groupedUsers, currentRole) => {
+      groupedUsers[currentRole._id] = users.filter((currentUser) => {
+        if (String(currentUser._id) === String(user?._id)) return false;
+        const assignedRoleId = currentUser.roleId?._id || currentUser.roleId;
+        return String(assignedRoleId) === String(currentRole._id);
+      });
+      return groupedUsers;
+    }, {});
+  }, [roles, users, user?._id]);
 
   return (
     <div className="space-y-6">
@@ -292,12 +256,6 @@ export const UserRoleManagementPage = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowCreateOrgModal(true)}
-            className="btn-secondary text-xs flex items-center gap-1.5"
-          >
-            <FiGlobe className="w-3.5 h-3.5 text-blue-700" /> New Organization
-          </button>
           <button
             onClick={() => setShowCreateUserModal(true)}
             className="btn-primary text-xs flex items-center gap-1.5"
@@ -322,6 +280,7 @@ export const UserRoleManagementPage = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {roles.map((r) => {
             const permCount = (r.permissionIds || []).length;
+            const assignedUsers = usersByRole[r._id] || [];
             return (
               <div
                 key={r._id}
@@ -339,6 +298,12 @@ export const UserRoleManagementPage = () => {
                   </div>
                   <p className="text-[11px] text-slate-600 line-clamp-2 leading-relaxed">
                     {r.description || "Enterprise operational access scope"}
+                  </p>
+                  <p className="mt-2 text-[11px] text-slate-500">
+                    <span className="font-semibold">Assigned users:</span>{" "}
+                    {assignedUsers.length > 0
+                      ? assignedUsers.map((assignedUser) => `${assignedUser.firstName} ${assignedUser.lastName}`).join(", ")
+                      : "None"}
                   </p>
                 </div>
 
@@ -358,73 +323,28 @@ export const UserRoleManagementPage = () => {
         </div>
       </div>
 
-      {/* Tabs & Controls */}
+      {/* Current Organization Users */}
       <div className="card-panel bg-white overflow-hidden shadow-xs">
         <div className="p-4 border-b border-slate-200 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          {/* Segmented View Switcher */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setActiveTab("users")}
-              className={`px-3 py-1.5 rounded text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1.5 ${
-                activeTab === "users"
-                  ? "bg-blue-700 text-white shadow-2xs"
-                  : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
-              }`}
-            >
-              <FiUsers className="w-3.5 h-3.5" /> All Users ({users.length})
-            </button>
-            <button
-              onClick={() => setActiveTab("organizations")}
-              className={`px-3 py-1.5 rounded text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1.5 ${
-                activeTab === "organizations"
-                  ? "bg-blue-700 text-white shadow-2xs"
-                  : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
-              }`}
-            >
-              <FiGlobe className="w-3.5 h-3.5" /> Organizations ({organizations.length})
-            </button>
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">Current Organization Users</h3>
+            <p className="text-xs text-slate-500">Only users from your organization are shown.</p>
           </div>
-
-          {/* Filters for Users Tab */}
-          {activeTab === "users" && (
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-              {/* Organization Filter Dropdown */}
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">
-                  Filter Tenant:
-                </span>
-                <select
-                  value={selectedOrgFilter}
-                  onChange={(e) => setSelectedOrgFilter(e.target.value)}
-                  className="form-input text-xs py-1 px-2.5 bg-white"
-                >
-                  <option value="all">All Organizations ({users.length} Users)</option>
-                  {organizations.map((org) => (
-                    <option key={org._id} value={org._id}>
-                      {org.name} ({org.userCount ?? 0} users)
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Search Box */}
-              <div className="relative">
-                <FiSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 w-3.5 h-3.5" />
-                <input
-                  type="text"
-                  placeholder="Search user, email, role..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="form-input text-xs pl-8 pr-3 py-1"
-                />
-              </div>
-            </div>
-          )}
+          <div className="relative">
+            <FiSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 w-3.5 h-3.5" />
+            <input
+              type="text"
+              placeholder="Search user, email, role..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="form-input text-xs pl-8 pr-3 py-1"
+            />
+          </div>
         </div>
 
         {loading ? (
           <LoadingSpinner text="Retrieving access control and user directories..." />
-        ) : activeTab === "users" ? (
+        ) : (
           /* Users Directory Table */
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
@@ -442,7 +362,7 @@ export const UserRoleManagementPage = () => {
                 {filteredUsers.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="py-8 text-center text-slate-500 text-xs">
-                      No user accounts found matching current tenant filter.
+                      No user accounts found in your organization.
                     </td>
                   </tr>
                 ) : (
@@ -511,65 +431,6 @@ export const UserRoleManagementPage = () => {
                     );
                   })
                 )}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          /* Organizations Directory Table */
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 text-slate-700 border-b border-slate-200">
-                <tr>
-                  <th className="py-3 px-4 font-semibold uppercase tracking-wider">Organization Name</th>
-                  <th className="py-3 px-4 font-semibold uppercase tracking-wider">Tenant Slug</th>
-                  <th className="py-3 px-4 font-semibold uppercase tracking-wider">Total Users</th>
-                  <th className="py-3 px-4 font-semibold uppercase tracking-wider">Status</th>
-                  <th className="py-3 px-4 font-semibold uppercase tracking-wider">Created</th>
-                  <th className="py-3 px-4 font-semibold uppercase tracking-wider text-right">Quick Filter</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {organizations.map((org) => (
-                  <tr key={org._id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center font-bold text-xs border border-blue-200">
-                          {org.name ? org.name[0].toUpperCase() : "O"}
-                        </div>
-                        <div>
-                          <p className="font-semibold text-slate-900">{org.name}</p>
-                          <p className="text-[11px] text-slate-400">ID: {org._id}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 font-mono text-[11px] text-slate-600">{org.slug}</td>
-                    <td className="py-3 px-4">
-                      <Badge variant="primary" size="xs">
-                        {org.userCount ?? 0} Accounts
-                      </Badge>
-                    </td>
-                    <td className="py-3 px-4">
-                      <Badge variant={org.status === "active" ? "primary" : "default"} size="xs">
-                        {org.status || "active"}
-                      </Badge>
-                    </td>
-                    <td className="py-3 px-4 text-slate-500">
-                      {new Date(org.createdAt).toLocaleDateString()}
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedOrgFilter(org._id);
-                          setActiveTab("users");
-                        }}
-                        className="px-2.5 py-1 rounded text-[11px] font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors border border-blue-200 cursor-pointer"
-                      >
-                        View Users ({org.userCount ?? 0})
-                      </button>
-                    </td>
-                  </tr>
-                ))}
               </tbody>
             </table>
           </div>
@@ -818,79 +679,6 @@ export const UserRoleManagementPage = () => {
         </div>
       )}
 
-      {/* ── CREATE ORGANIZATION MODAL ─────────────────────────────────────────── */}
-      {showCreateOrgModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-2xs">
-          <div className="bg-white border border-slate-200 rounded-lg p-6 max-w-md w-full shadow-xl">
-            <h3 className="text-base font-bold text-slate-900 mb-1">
-              Create New Senior Living Organization
-            </h3>
-            <p className="text-xs text-slate-500 mb-4">
-              Spawns an isolated multi-tenant community pre-initialized with 4 standard roles, 17 permissions, and clinical thresholds.
-            </p>
-
-            <form onSubmit={handleCreateOrganization} className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Organization Community Name *
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Oakwood Manor Senior Living"
-                  value={newOrgName}
-                  onChange={(e) => {
-                    setNewOrgName(e.target.value);
-                    if (!newOrgSlug) {
-                      setNewOrgSlug(
-                        e.target.value
-                          .toLowerCase()
-                          .replace(/[^a-z0-9]+/g, "-")
-                          .replace(/^-+|-+$/g, "")
-                      );
-                    }
-                  }}
-                  className="form-input text-xs"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Tenant Identifier (Slug)
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. oakwood-manor"
-                  value={newOrgSlug}
-                  onChange={(e) => setNewOrgSlug(e.target.value)}
-                  className="form-input text-xs font-mono"
-                />
-                <span className="text-[10px] text-slate-400 mt-1 block">
-                  Unique URI identifier used for tenant isolation.
-                </span>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200 mt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowCreateOrgModal(false)}
-                  className="btn-secondary text-xs"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={creatingOrg}
-                  className="btn-primary text-xs flex items-center gap-1.5"
-                >
-                  <FiGlobe className="w-3.5 h-3.5" />
-                  {creatingOrg ? "Initializing Community..." : "Create Organization"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

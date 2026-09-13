@@ -27,7 +27,7 @@ router.get(
 
 router.get("/:id", protect, authorize("medications.view"), getMedicationById);
 
-router.patch("/:id", protect, authorize("medications.view"), updateMedication);
+router.patch("/:id", protect, authorize("medications.manage"), updateMedication);
 
 router.delete("/:id", protect, authorize("medications.view"), deleteMedication);
 

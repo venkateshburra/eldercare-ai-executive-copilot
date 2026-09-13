@@ -7,7 +7,7 @@ import Setting from "../models/Setting.js";
 // ── GET ALL ORGANIZATIONS ───────────────────────────────────────────────────
 export const getOrganizations = async (req, res) => {
   try {
-    const orgs = await Organization.find({}).sort({ createdAt: -1 });
+    const orgs = await Organization.find({ _id: req.user.organizationId }).sort({ createdAt: -1 });
 
     const orgsWithCounts = await Promise.all(
       orgs.map(async (org) => {
@@ -116,6 +116,8 @@ export const createOrganization = async (req, res) => {
           permMap["scenarios.manage"],
           permMap["decisions.view"],
           permMap["residents.view"],
+          permMap["incidents.view"],
+          permMap["medications.view"],
           permMap["ai.use"],
           permMap["auditLogs.view"],
         ].filter(Boolean),
@@ -147,11 +149,15 @@ export const createOrganization = async (req, res) => {
           permMap["shifts.manage"],
           permMap["carePlans.view"],
           permMap["carePlans.manage"],
+          permMap["medications.view"],
+          permMap["medications.manage"],
+          permMap["activities.view"],
           permMap["incidents.view"],
           permMap["incidents.manage"],
           permMap["residents.view"],
           permMap["decisions.view"],
           permMap["decisions.manage"],
+          permMap["reports.view"],
           permMap["ai.use"],
         ].filter(Boolean),
         isActive: true,

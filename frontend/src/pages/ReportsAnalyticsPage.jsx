@@ -7,6 +7,7 @@ import {
   FiDownload,
   FiSearch,
   FiLock,
+  FiX,
 } from "react-icons/fi";
 import toast from "react-hot-toast";
 import { useAuth } from "../context/AuthContext";
@@ -29,6 +30,9 @@ export const ReportsAnalyticsPage = () => {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedRecord, setSelectedRecord] = useState(null);
+  const [selectedStatus, setSelectedStatus] = useState("");
+  const [savingStatus, setSavingStatus] = useState(false);
 
   // If permissions change and the active tab is no longer visible, reset to first allowed tab
   useEffect(() => {
@@ -65,6 +69,48 @@ export const ReportsAnalyticsPage = () => {
   useEffect(() => {
     fetchReportData();
   }, [reportType]);
+
+  const statusConfig = {
+    residents: { permission: "residents.manage", endpoint: "/residents", options: ["active", "inactive", "discharged"] },
+    staff: { permission: "staff.manage", endpoint: "/staff", options: ["active", "inactive", "on_leave"] },
+    incidents: { permission: "incidents.manage", endpoint: "/incidents", options: ["open", "investigating", "resolved"] },
+    medications: { permission: "medications.manage", endpoint: "/medications", options: ["active", "completed", "discontinued"] },
+  };
+
+  const statusVariant = (status) => {
+    if (status === "inactive") return "danger";
+    if (["on_leave", "discharged", "discontinued", "completed"].includes(status)) return "default";
+    if (["investigating"].includes(status)) return "warning";
+    if (["resolved", "active"].includes(status)) return "primary";
+    if (["open"].includes(status)) return "danger";
+    return "default";
+  };
+
+  const openRecordDetails = (record) => {
+    setSelectedRecord({ type: reportType, record });
+    setSelectedStatus(record.status || "");
+  };
+
+  const handleStatusUpdate = async (event) => {
+    event.preventDefault();
+    if (!selectedRecord || !selectedStatus) return;
+
+    const config = statusConfig[selectedRecord.type];
+    setSavingStatus(true);
+    try {
+      await api.patch(`${config.endpoint}/${selectedRecord.record._id}`, { status: selectedStatus });
+      setData((currentData) => currentData.map((item) => (
+        item._id === selectedRecord.record._id ? { ...item, status: selectedStatus } : item
+      )));
+      toast.success("Status updated successfully");
+      setSelectedRecord(null);
+      setSelectedStatus("");
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to update status");
+    } finally {
+      setSavingStatus(false);
+    }
+  };
 
   const handleExportCSV = () => {
     if (!data.length) {
@@ -248,7 +294,16 @@ export const ReportsAnalyticsPage = () => {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredData.map((row, i) => (
-                      <tr key={row._id || i} className="hover:bg-slate-50/80 transition-colors">
+                      <tr
+                        key={row._id || i}
+                        onClick={() => openRecordDetails(row)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") openRecordDetails(row);
+                        }}
+                        tabIndex={0}
+                        className="hover:bg-slate-50/80 focus:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-300 transition-colors cursor-pointer"
+                        title="Open record details"
+                      >
                         {reportType === "residents" && (
                           <>
                             <td className="py-3 px-4 font-bold text-slate-900">
@@ -269,7 +324,7 @@ export const ReportsAnalyticsPage = () => {
                               </Badge>
                             </td>
                             <td className="py-3 px-4">
-                              <Badge variant="primary" size="xs">
+                              <Badge variant={statusVariant(row.status || "active")} size="xs">
                                 {row.status || "active"}
                               </Badge>
                             </td>
@@ -293,7 +348,7 @@ export const ReportsAnalyticsPage = () => {
                               {row.phone || "—"}
                             </td>
                             <td className="py-3 px-4">
-                              <Badge variant="primary" size="xs">
+                              <Badge variant={statusVariant(row.status || row.userId?.status)} size="xs">
                                 {row.status || row.userId?.status || "—"}
                               </Badge>
                             </td>
@@ -326,7 +381,7 @@ export const ReportsAnalyticsPage = () => {
                             </td>
                             <td className="py-3 px-4 text-slate-500">
                               <div>{row.incidentDate ? new Date(row.incidentDate).toLocaleString() : "—"}</div>
-                              <Badge variant={row.status === "resolved" ? "primary" : row.status === "investigating" ? "warning" : "danger"} size="xs">
+                              <Badge variant={statusVariant(row.status)} size="xs">
                                 {row.status || "—"}
                               </Badge>
                             </td>
@@ -344,7 +399,9 @@ export const ReportsAnalyticsPage = () => {
                               </Badge>
                             </td>
                             <td className="py-3 px-4">
-                              <Badge variant="primary" size="xs">Active</Badge>
+                              <Badge variant={statusVariant(row.status)} size="xs">
+                                {row.status || "—"}
+                              </Badge>
                             </td>
                           </>
                         )}
@@ -357,6 +414,74 @@ export const ReportsAnalyticsPage = () => {
           </div>
         </>
       )}
+
+      {selectedRecord && (() => {
+        const { type, record } = selectedRecord;
+        const config = statusConfig[type];
+        const canManage = hasPermission(config.permission);
+        const recordName = type === "residents"
+          ? `${record.firstName || ""} ${record.lastName || ""}`.trim()
+          : type === "staff"
+            ? `${record.userId?.firstName || ""} ${record.userId?.lastName || ""}`.trim()
+            : type === "incidents"
+              ? record.type || "Incident"
+              : record.name || record.medicationName || "Medication";
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-2xs">
+            <div className="bg-white border border-slate-200 rounded-lg p-6 max-w-lg w-full shadow-xl">
+              <div className="flex items-start justify-between gap-4 mb-5">
+                <div>
+                  <p className="text-[11px] uppercase tracking-wider font-semibold text-blue-700">{type} details</p>
+                  <h3 className="text-base font-bold text-slate-900 mt-1">{recordName || "Record details"}</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedRecord(null)}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 rounded cursor-pointer"
+                  aria-label="Close record details"
+                >
+                  <FiX className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-xs mb-5">
+                {Object.entries(record)
+                  .filter(([key, value]) => !["_id", "__v", "organizationId", "createdBy", "updatedAt"].includes(key) && typeof value !== "object")
+                  .map(([key, value]) => (
+                    <div key={key} className="border-b border-slate-100 pb-2">
+                      <dt className="text-slate-400 capitalize">{key.replace(/([A-Z])/g, " $1")}</dt>
+                      <dd className="mt-0.5 text-slate-700 wrap-break-word">{String(value || "—")}</dd>
+                    </div>
+                  ))}
+              </div>
+
+              {canManage ? (
+                <form onSubmit={handleStatusUpdate} className="border-t border-slate-200 pt-4">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1" htmlFor="record-status">
+                    Change status
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <select
+                      id="record-status"
+                      value={selectedStatus}
+                      onChange={(event) => setSelectedStatus(event.target.value)}
+                      className="form-input text-xs"
+                    >
+                      {config.options.map((option) => <option key={option} value={option}>{option}</option>)}
+                    </select>
+                    <button type="submit" disabled={savingStatus || selectedStatus === record.status} className="btn-primary text-xs">
+                      {savingStatus ? "Saving..." : "Save Status"}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <p className="border-t border-slate-200 pt-4 text-xs text-slate-500">You have read-only access to this record.</p>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

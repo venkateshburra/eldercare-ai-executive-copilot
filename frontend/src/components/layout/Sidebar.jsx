@@ -66,7 +66,8 @@ export const Sidebar = ({ isOpen, onClose }) => {
           }`}
       >
         {/* Brand / Logo Header */}
-        <div className="h-16 flex items-center justify-between px-6 border-b border-slate-200 shrink-0">
+        <NavLink to="/">
+          <div className="h-16 flex items-center justify-between px-6 border-b border-slate-200 shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-blue-700 text-white flex items-center justify-center shadow-xs">
               <FiCompass className="w-5 h-5" />
@@ -88,6 +89,7 @@ export const Sidebar = ({ isOpen, onClose }) => {
             <FiX className="w-5 h-5" />
           </button>
         </div>
+        </NavLink>
 
         {/* Navigation Groups - Filtered by RBAC permissions */}
         <nav className="flex-1 px-3 py-4 space-y-6">
