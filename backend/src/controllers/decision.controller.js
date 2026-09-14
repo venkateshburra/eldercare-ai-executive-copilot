@@ -148,13 +148,14 @@ export const approveDecision = async (req, res, next) => {
   try {
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) throw badRequest("Invalid decision ID");
+    const reason = req.body?.reason || "";
 
     const decision = await Decision.findOneAndUpdate(
       { _id: id, organizationId: req.user.organizationId },
       {
         status: "approved",
         $push: {
-          actions: { actorId: req.user._id, action: "approve", timestamp: new Date(), reason: req.body.reason || "", previousValue: "pending", newValue: "approved" },
+          actions: { actorId: req.user._id, action: "approve", timestamp: new Date(), reason, previousValue: "pending", newValue: "approved" },
         },
       },
       { new: true, runValidators: true }
